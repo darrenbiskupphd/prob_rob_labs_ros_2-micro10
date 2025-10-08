@@ -1,0 +1,32 @@
+rosbag2_bagfile_information:
+  version: 5
+  storage_identifier: sqlite3
+  duration:
+    nanoseconds: 89884493674
+  starting_time:
+    nanoseconds_since_epoch: 1759448098723204701
+  message_count: 2509
+  topics_with_message_count:
+    - topic_metadata:
+        name: /hinged_glass_door/torque
+        type: std_msgs/msg/Float64
+        serialization_format: cdr
+        offered_qos_profiles: "- history: 1\n  depth: 1\n  reliability: 1\n  durability: 1\n  deadline:\n    sec: 9223372036\n    nsec: 854775807\n  lifespan:\n    sec: 9223372036\n    nsec: 854775807\n  liveliness: 1\n  liveliness_lease_duration:\n    sec: 9223372036\n    nsec: 854775807\n  avoid_ros_namespace_conventions: false"
+      message_count: 67
+    - topic_metadata:
+        name: /feature_mean
+        type: std_msgs/msg/Float64
+        serialization_format: cdr
+        offered_qos_profiles: "- history: 1\n  depth: 1\n  reliability: 1\n  durability: 2\n  deadline:\n    sec: 9223372036\n    nsec: 854775807\n  lifespan:\n    sec: 9223372036\n    nsec: 854775807\n  liveliness: 1\n  liveliness_lease_duration:\n    sec: 9223372036\n    nsec: 854775807\n  avoid_ros_namespace_conventions: false"
+      message_count: 2442
+  compression_format: ""
+  compression_mode: ""
+  relative_file_paths:
+    - door_data_bag_0.db3
+  files:
+    - path: door_data_bag_0.db3
+      starting_time:
+        nanoseconds_since_epoch: 1759448098723204701
+      duration:
+        nanoseconds: 89884493674
+      message_count: 2509
