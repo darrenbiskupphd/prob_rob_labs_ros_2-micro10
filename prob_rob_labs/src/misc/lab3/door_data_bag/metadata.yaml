@@ -2,31 +2,31 @@ rosbag2_bagfile_information:
   version: 5
   storage_identifier: sqlite3
   duration:
-    nanoseconds: 38840239334
+    nanoseconds: 123109299881
   starting_time:
-    nanoseconds_since_epoch: 1760047055898761259
-  message_count: 224
+    nanoseconds_since_epoch: 1760048217121808539
+  message_count: 2573
   topics_with_message_count:
     - topic_metadata:
         name: /hinged_glass_door/torque
         type: std_msgs/msg/Float64
         serialization_format: cdr
         offered_qos_profiles: "- history: 1\n  depth: 1\n  reliability: 1\n  durability: 1\n  deadline:\n    sec: 9223372036\n    nsec: 854775807\n  lifespan:\n    sec: 9223372036\n    nsec: 854775807\n  liveliness: 1\n  liveliness_lease_duration:\n    sec: 9223372036\n    nsec: 854775807\n  avoid_ros_namespace_conventions: false"
-      message_count: 26
+      message_count: 95
     - topic_metadata:
         name: /feature_mean
         type: std_msgs/msg/Float64
         serialization_format: cdr
         offered_qos_profiles: "- history: 1\n  depth: 1\n  reliability: 1\n  durability: 2\n  deadline:\n    sec: 9223372036\n    nsec: 854775807\n  lifespan:\n    sec: 9223372036\n    nsec: 854775807\n  liveliness: 1\n  liveliness_lease_duration:\n    sec: 9223372036\n    nsec: 854775807\n  avoid_ros_namespace_conventions: false"
-      message_count: 198
+      message_count: 2478
   compression_format: ""
   compression_mode: ""
   relative_file_paths:
-    - door_feature_bag_0.db3
+    - door_data_bag_0.db3
   files:
-    - path: door_feature_bag_0.db3
+    - path: door_data_bag_0.db3
       starting_time:
-        nanoseconds_since_epoch: 1760047055898761259
+        nanoseconds_since_epoch: 1760048217121808539
       duration:
-        nanoseconds: 38840239334
-      message_count: 224
+        nanoseconds: 123109299881
+      message_count: 2573
