@@ -22,6 +22,10 @@ def generate_launch_description():
                               description='torque to open the door'),
         DeclareLaunchArgument('torque_close', default_value='-1.8',
                               description='torque to close the door'),
+        DeclareLaunchArgument('threshold', default_value='0.9999',
+                              description='threshold to open the door'),
+        DeclareLaunchArgument('belief_threshold', default_value='237.0',
+                              description='threshold for the sensor to believe the door is open or not'),
         Node(
             package='prob_rob_labs',
             executable='door_navigator',
@@ -32,6 +36,8 @@ def generate_launch_description():
             {'speed_forward': LaunchConfiguration('speed_forward')},
             {'speed_stop': LaunchConfiguration('speed_stop')},
             {'torque_open': LaunchConfiguration('torque_open')},
-            {'torque_close': LaunchConfiguration('torque_close')}]
+            {'torque_close': LaunchConfiguration('torque_close')},
+            {'threshold': LaunchConfiguration('threshold')},
+            {'belief_threshold': LaunchConfiguration('belief_threshold')}]
         )
     ])
