@@ -3,6 +3,7 @@ from rclpy.node import Node
 import numpy as np
 
 from std_msgs.msg import Float64
+from std_msgs.msg import Empty
 from geometry_msgs.msg import Twist
 
 
@@ -25,6 +26,7 @@ class OpenDoorThroughDoor(Node):
 
         self.pub_door_torque = self.create_publisher(Float64,'/hinged_glass_door/torque', 10)
         self.pub_robot_vel = self.create_publisher(Twist,'/cmd_vel', 10)
+        self.pub_door_open = self.create_publisher(Empty, '/door_open', 10)
 
         self.timer = self.create_timer(heartbeat_period, self.heartbeat)
         
@@ -35,6 +37,7 @@ class OpenDoorThroughDoor(Node):
         self.belief = np.array([0.5, 0.5])
         # Pr(z=o;x=o/c)
         # Pr(z=c;x=o/c)
+        self.prediction_model = np.array([0.63768115942, 1 - 0.63768115942])
         self.measurement_model = np.array([[0.9622,0.02],
                                             [0.0378,0.98]])
 
@@ -60,7 +63,10 @@ class OpenDoorThroughDoor(Node):
         self.t += heartbeat_period
         belief_threshold = self.get_parameter('belief_threshold').value
         if self.state == 0:
-            self.send_torque(self.get_parameter('torque_open').value)
+            #self.send_torque(self.get_parameter('torque_open').value)
+            self.pub_door_open.publish(Empty())
+            self.belief[0] = 1 * self.belief[0] + self.prediction_model[0] * self.belief[1]
+            self.belief[1] = 1 - self.belief[0]
 
             if self.latest_feature_mean >= belief_threshold:
                 self.get_logger().info('The sensor believes the door is closed')
@@ -84,25 +90,12 @@ class OpenDoorThroughDoor(Node):
             self.robot_forward(self.get_parameter('speed_forward').value)
             if self.t - self.move_started > 6.0:
                 self.state = 2
+                self.move_started = self.t
 
         elif self.state == 2:
             self.robot_stop()
             self.send_torque(self.get_parameter('torque_close').value)
 
-
-
-        # if self.state == 0:
-        #     self.send_torque(self.get_parameter("torque_open").value)
-        #     if self.latest_feature_mean < 260.0:
-        #         self.state = 1
-        #         self.move_started = self.t
-        # elif self.state == 1:
-        #     self.robot_forward(self.get_parameter("speed_forward").value)
-        #     if self.t - self.move_started > 8.0:
-        #         self.state = 2
-        # elif self.state == 2:
-        #     self.robot_stop()
-        #     self.send_torque(self.get_parameter("torque_close").value)
 
     def spin(self):
         rclpy.spin(self)
