@@ -33,6 +33,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'gt_sub_pub = gt_sub_pub.gt_sub_pub:main',
             'measurement_model = measurement_model.measurement_model:main',
             'door_navigator = door_navigator.door_navigator:main',
             'image_mean_feature_x = image_mean_feature_x.image_mean_feature_x:main',
