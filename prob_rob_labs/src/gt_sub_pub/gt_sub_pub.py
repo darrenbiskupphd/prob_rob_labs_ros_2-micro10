@@ -6,7 +6,7 @@ from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import TwistStamped
 
 
-heartbeat_period = 0.1
+heartbeat_period = 0.05
 
 class GtSubPub(Node):
 
@@ -38,7 +38,11 @@ class GtSubPub(Node):
             self.twist.header.stamp = self.get_clock().now().to_msg()
             self.twist.header.frame_id = self.ref_frame
             self.twist.twist = msg.twist[id]
-    
+
+    #         self.pub_gt()
+    # def pub_gt(self):
+    #     self.pub_ground_truth_pose.publish(self.pose)
+    #     self.pub_ground_truth_twist.publish(self.twist)
     def heartbeat(self):
         # self.log.info('heartbeat')
         self.pub_ground_truth_pose.publish(self.pose)
