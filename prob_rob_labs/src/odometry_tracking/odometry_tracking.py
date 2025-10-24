@@ -24,11 +24,10 @@ class OdometryTracking(Node):
         super().__init__('odometry_tracking')
         self.log = self.get_logger()
 
-
         self.imu_sub = Subscriber(self, Imu, '/imu', qos_profile=QoSProfile(depth=10)) #time stamp for every 0.006s
         self.joint_state_sub = Subscriber(self, JointState, '/joint_states', qos_profile=QoSProfile(depth=10)) # time stamp for every 0.034s
 
-        self.vel_cam_sub = self.create_subscription(Twist, '/vel_cam', self.vel_cam_callback, 10)
+        self.cmd_vel_sub = self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10)
 
         self.ekf_odom_pub = self.create_publisher(Odometry, '/ekf_odom', 10)
 
@@ -38,9 +37,10 @@ class OdometryTracking(Node):
         # define model parameters
         self.x = np.array([0.0, 0.0, 0.0, 0.0, 0.0]) # theta, x, y, v_x, w_z
         self.x_cov = np.diag([1.0, 1.0, 1.0, 0.01, 0.01]) 
+        self.x_cov_bar = self.x_cov.copy()
 
         # define input parameters
-        self.vel_cam = None
+        self.vel_cmd = None
         self.u_v = 0.0
         self.u_w = 0.0
         
@@ -50,8 +50,8 @@ class OdometryTracking(Node):
         # define the time
         self.last_update_time = None
 
-        self.tau_v = 0.94
-        self.tau_w = 0.19
+        self.tau_v = 1.6549
+        self.tau_w = 0.3345
 
         # self.timer = self.create_timer(heartbeat_period, self.heartbeat) 
 
@@ -63,30 +63,26 @@ class OdometryTracking(Node):
         # self.log.info(f'now the joint state timestamp is {self.joint_state.header.stamp}')
 
         if self.last_update_time is None:
-            self.last_update_time = self.imu.header.stamp
-        dt = (self.imu.header.stamp.sec + self.imu.header.stamp.nanosec * 1e-9) - \
-             (self.last_update_time.sec + self.last_update_time.nanosec * 1e-9)
-        self.last_update_time = self.imu.header.stamp
+            self.last_update_time = self.imu.header.stamp.sec + self.imu.header.stamp.nanosec * 1e-9
+        dt = (self.imu.header.stamp.sec + self.imu.header.stamp.nanosec * 1e-9 +
+              self.joint_state.header.stamp.sec + self.joint_state.header.stamp.nanosec * 1e-9) / 2 - \
+              self.last_update_time
+        self.last_update_time += dt
         self.x = self.prediction(dt, self.u_v, self.u_w)
-        self.x, self.x_cov = self.update_through_imu(dt, self.imu)
+        self.x, self.x_cov = self.update_through_imu(self.imu)
+        self.x, self.x_cov = self.update_through_joint_state(self.joint_state)
 
-        # self.log.info(f"the x after imu update is {self.x}")
-        # self.log.info(f"the x_cov after imu update is {self.x_cov}")
-        
-        dt = (self.joint_state.header.stamp.sec + self.joint_state.header.stamp.nanosec * 1e-9) - \
-             (self.last_update_time.sec + self.last_update_time.nanosec * 1e-9)
-        self.last_update_time = self.joint_state.header.stamp
-        self.x = self.prediction(dt, self.u_v, self.u_w)
-        self.x, self.x_cov = self.update_through_joint_state(dt, self.joint_state)
 
-        # self.log.info(f"the x after joint state update is {self.x}")
+
+        self.log.info(f"the x after joint state update is {self.x}")
         # self.log.info(f"the x_cov after joint state update is {self.x_cov}")
         # self.log.info(f"the x is {self.x}")
         # self.log.info(f"the x_cov is {self.x_cov}")
         # self.log.info(f"the x shape is {self.x.shape}")
         # self.log.info(f"the x_cov shape is {self.x_cov.shape}")
         self.ekf_odom_msg = Odometry()
-        self.ekf_odom_msg.header.stamp = self.last_update_time
+        self.ekf_odom_msg.header.stamp.sec = int(self.last_update_time)
+        self.ekf_odom_msg.header.stamp.nanosec = int((self.last_update_time - int(self.last_update_time)) * 1e9)
         self.ekf_odom_msg.header.frame_id = 'odom'
         self.ekf_odom_msg.pose.pose.position.x = self.x[1]
         self.ekf_odom_msg.pose.pose.position.y = self.x[2]
@@ -113,10 +109,10 @@ class OdometryTracking(Node):
         
         pose_cov[0, 1] = pose_cov[1, 0] = self.x_cov[1, 2]  
         pose_cov[0, 5] = pose_cov[5, 0] = self.x_cov[1, 0]  
-        pose_cov[1, 5] = pose_cov[5, 1] = self.x_cov[2, 0] 
- 
+        pose_cov[1, 5] = pose_cov[5, 1] = self.x_cov[2, 0]
+
         self.ekf_odom_msg.pose.covariance = pose_cov.flatten().tolist()
-        
+
         # twist cov
         twist_cov = np.zeros((6, 6))
         twist_cov[0, 0] = self.x_cov[3, 3]  # vx 
@@ -136,11 +132,11 @@ class OdometryTracking(Node):
 
     # def heartbeat(self):
         # self.log.info('heartbeat')
-    def vel_cam_callback(self, msg):
-        self.vel_cam = msg
-        self.u_v = self.vel_cam.linear.x
-        self.u_w = self.vel_cam.angular.z
-        # self.log.info(f"the vel_cam is {self.vel_cam}")
+    def cmd_vel_callback(self, msg):
+        self.vel_cmd = msg
+        self.u_v = self.vel_cmd.linear.x
+        self.u_w = self.vel_cmd.angular.z
+        # self.log.info(f"the vel_cmd is {self.vel_cmd}")
 
     def prediction(self, dt, u_v, u_w):
         self.x[0] = self.x[0] + self.x[4] * dt
@@ -149,6 +145,7 @@ class OdometryTracking(Node):
         self.x[3] = 0.1**(dt/self.tau_v) * self.x[3] + (1 - 0.1**(dt/self.tau_v)) * u_v
         self.x[4] = 0.1**(dt/self.tau_w) * self.x[4] + (1 - 0.1**(dt/self.tau_w)) * u_w
 
+        self.x_cov_bar = self.cal_x_cov_bar(dt)
         return self.x
     
     def cal_x_cov_bar(self, dt):
@@ -157,7 +154,7 @@ class OdometryTracking(Node):
                         [dt*np.cos(self.x[0])*self.x[3], 0, 1, dt*np.sin(self.x[0]), 0],
                         [0, 0, 0, 0.1**(dt/self.tau_v), 0],
                         [0, 0, 0, 0, 0.1**(dt/self.tau_w)]])
-        G_u = np.array([[0, 0],
+        G_u = np.array([[0, 0], 
                         [0, 0],
                         [0, 0],
                         [1-0.1**(dt/self.tau_v), 0],
@@ -165,30 +162,29 @@ class OdometryTracking(Node):
         
         x_cov_bar = G_x @ self.x_cov @ G_x.T + G_u @ self.u_cov @ G_u.T
         return x_cov_bar
-
-    def update_through_imu(self, dt, imu_msg):
-        x_cov_bar = self.cal_x_cov_bar(dt)
+    
+    def update_through_imu(self, imu_msg):
         H_w = np.array([0, 0, 0, 0, 1])
         cov_z_w = imu_msg.angular_velocity_covariance[8]
-        K = x_cov_bar @ H_w.T / (H_w @ x_cov_bar @ H_w.T + cov_z_w)
+        K = self.x_cov_bar @ H_w.T / (H_w @ self.x_cov_bar @ H_w.T + cov_z_w)
         z_w = imu_msg.angular_velocity.z
         self.x = self.x + K * (z_w - self.x[4])
         # self.log.info(f"K gain shape is {K.shape}")
         # self.log.info(f"H_w shape is {H_w.shape}")
-        self.x_cov = (np.eye(5) - np.outer(K, H_w)) @ x_cov_bar
-        return self.x, self.x_cov
+        self.x_cov_bar = (np.eye(5) - np.outer(K, H_w)) @ self.x_cov_bar
+        return self.x, self.x_cov_bar
 
-    def update_through_joint_state(self, dt, joint_state_msg):
-        x_cov_bar = self.cal_x_cov_bar(dt)
+    def update_through_joint_state(self, joint_state_msg):
+        # x_cov_bar = self.cal_x_cov_bar(dt)
         H_w = np.array([[0, 0, 0, 30.3030, 2.1742],
                         [0, 0, 0, 30.3030, -2.1742]])
         cov_z_w = np.diag([0.01, 0.01])
-        K = x_cov_bar @ H_w.T @ np.linalg.inv(H_w @ x_cov_bar @ H_w.T + cov_z_w)
+        K = self.x_cov_bar @ H_w.T @ np.linalg.inv(H_w @ self.x_cov_bar @ H_w.T + cov_z_w)
         z_w_rl = np.array([joint_state_msg.velocity[0], joint_state_msg.velocity[1]])
         self.x = self.x + K @ (z_w_rl - H_w @ self.x)
         # self.log.info(f"K gain shape is {K.shape}")
         # self.log.info(f"H_w shape is {H_w.shape}")
-        self.x_cov = (np.eye(5) - K @ H_w) @ x_cov_bar
+        self.x_cov = (np.eye(5) - K @ H_w) @ self.x_cov_bar
         return self.x, self.x_cov
 
 

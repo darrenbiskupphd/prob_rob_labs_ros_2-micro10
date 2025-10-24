@@ -22,7 +22,7 @@ class GtSubPub(Node):
         self.pub_ground_truth_twist = self.create_publisher(TwistStamped, '/tb3/ground_truth/twist', 10)
 
 
-        self.timer = self.create_timer(heartbeat_period, self.heartbeat)
+        #self.timer = self.create_timer(heartbeat_period, self.heartbeat)
 
     
     def sub_ground_truth_callback(self, msg):
@@ -39,14 +39,14 @@ class GtSubPub(Node):
             self.twist.header.frame_id = self.ref_frame
             self.twist.twist = msg.twist[id]
 
-    #         self.pub_gt()
-    # def pub_gt(self):
-    #     self.pub_ground_truth_pose.publish(self.pose)
-    #     self.pub_ground_truth_twist.publish(self.twist)
-    def heartbeat(self):
-        # self.log.info('heartbeat')
+            self.pub_gt()
+    def pub_gt(self):
         self.pub_ground_truth_pose.publish(self.pose)
         self.pub_ground_truth_twist.publish(self.twist)
+    # def heartbeat(self):
+    #     #self.log.info('heartbeat')
+    #     self.pub_ground_truth_pose.publish(self.pose)
+    #     self.pub_ground_truth_twist.publish(self.twist)
 
     def spin(self):
         rclpy.spin(self)
