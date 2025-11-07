@@ -8,14 +8,12 @@ from std_msgs.msg import Float32
 from geometry_msgs.msg import PoseStamped
 from tf_transformations import quaternion_matrix
 
-heartbeat_period = 0.1
 
 class LandmarkEstimator(Node):
 
     def __init__(self):
         super().__init__('landmark_estimator')
         self.log = self.get_logger()
-        # self.timer = self.create_timer(heartbeat_period, self.heartbeat)
         
         self.landmark_pixel_axis = -1
         self.landmark_height_pixels = -1
@@ -33,6 +31,7 @@ class LandmarkEstimator(Node):
         self.corner_sub = self.create_subscription(Point2DArrayStamped, topic_name, self.estimate_landmark_height_pos, 10) #time stamp for every 0.006s
         self.camera_sub = self.create_subscription(CameraInfo, '/camera/camera_info', self.estimate_dist_bearing, 10) #time stamp for every 0.006s
         self.robot_pose_sub = self.create_subscription(PoseStamped, '/tb3/ground_truth/pose', self.calc_measurement_error, 10)
+
         self.bearing_est_pub = self.create_publisher(Float32, '/bearing_dist/bearing', 10)
         self.dist_est_pub = self.create_publisher(Float32, '/bearing_dist/dist', 10)
         self.bearing_error_pub = self.create_publisher(Float32, '/bearing_dist/bearing_error', 10)
@@ -76,7 +75,7 @@ class LandmarkEstimator(Node):
             cy = p[5]
             self.theta = np.arctan2(cx - self.landmark_pixel_axis, fx)
             h = self.get_parameter('cylinder_height').value
-            self.d = h*(fy/self.landmark_height_pixels*np.cos(self.theta))
+            self.d = h * fy / (self.landmark_height_pixels * np.cos(self.theta))
 
             msg = Float32()
             msg.data = self.theta
@@ -88,13 +87,14 @@ class LandmarkEstimator(Node):
 
     def calc_measurement_error(self, msg):
         pos_cylinder = np.array([0,0,0.25])
-        cyl_height = self.get_parameter('cylinder_height').value
+
         camera_pos_robot_frame = np.array([0.0759997, 0, 0.0930071, 1])
         
         robot_base_pose = msg.pose
         rotation_matrix = quaternion_matrix([robot_base_pose.orientation.x,
                                               robot_base_pose.orientation.y,
-                                              robot_base_pose.orientation.z, 1])[:3, :3]
+                                              robot_base_pose.orientation.z, 
+                                              robot_base_pose.orientation.w])[:3, :3]
         base_pose_matrix = np.eye(4)
         base_pose_matrix[:3, :3] = rotation_matrix
         base_pose_matrix[:3, 3] = np.array([robot_base_pose.position.x,
@@ -106,12 +106,19 @@ class LandmarkEstimator(Node):
         robot_xvec = rotation_matrix[:2, 0]
 
         dist = np.linalg.norm(cam_to_cyl_xy)
-        bearing = np.arccos(np.dot(robot_xvec, cam_to_cyl_xy)/(np.linalg.norm(robot_xvec)*dist))
-        if np.cross(robot_xvec, cam_to_cyl_xy) > 0:
-            bearing *= -1
-        
         error_d = abs(dist - self.d)
-        error_theta = abs(abs(bearing) - abs(self.theta))
+
+        # bearing = np.arccos(np.dot(robot_xvec, cam_to_cyl_xy)/(np.linalg.norm(robot_xvec)*dist))
+        # if np.cross(robot_xvec, cam_to_cyl_xy) > 0:
+        #     bearing *= -1
+        
+        # error_theta = abs(abs(bearing) - abs(self.theta))
+        dot = np.dot(robot_xvec, cam_to_cyl_xy)
+        cross = np.cross(robot_xvec, cam_to_cyl_xy)
+        bearing_gt = np.arctan2(cross, dot)
+        # self.log.info(f"bearing_gt: {bearing_gt}, self.theta: {self.theta}")
+
+        error_theta = abs(bearing_gt - self.theta)
         msg = Float32()
         msg.data = error_theta
         self.bearing_error_pub.publish(msg)
@@ -121,10 +128,6 @@ class LandmarkEstimator(Node):
         self.dist_error_pub.publish(msg)
 
 
-
-
-    def heartbeat(self):
-        self.log.info('heartbeat')
 
     def spin(self):
         rclpy.spin(self)
