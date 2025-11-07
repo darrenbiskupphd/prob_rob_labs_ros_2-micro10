@@ -32,7 +32,7 @@ class LandmarkEstimator(Node):
 
 
     def estimate_landmark_height_pos(self, msg):
-        if len(msg.points) < 1:
+        if len(msg.points) < 5:
             self.pub_bearing_flag = False
         else:
             self.pub_bearing_flag = True
@@ -46,9 +46,17 @@ class LandmarkEstimator(Node):
                 max_x = max(point.x, max_x)
                 max_y = max(point.y, max_y)
 
+            pixel_width = max_x - min_x
+            pixel_height = max_y - min_y
+            image_ratio = pixel_height / pixel_width
+            actual_ratio = self.get_parameter('cylinder_height').value / (self.get_parameter('cylinder_radius').value*2)
+            if abs(image_ratio - actual_ratio) > 0.2:
+                self.pub_bearing_flag = False
+                return
+
             # self.log.info(f"Center X: {(max_x + min_x)/2}, Height: {(max_y - min_y)}")
             self.landmark_pixel_axis = (max_x + min_x)/2
-            self.landmark_height_pixels = max_y - min_y
+            self.landmark_height_pixels = pixel_height
 
     def estimate_dist_bearing(self, msg):
         if self.pub_bearing_flag:
