@@ -84,8 +84,8 @@ class LandmarkEstimator(Node):
             h = self.get_parameter('cylinder_height').value
             self.d = h * fy / (self.landmark_height_pixels * np.cos(self.theta))
 
-            self.bearing_est_pub.publish(Float32(data=self.theta))
-            self.dist_est_pub.publish(Float32(data=self.d))
+            # self.bearing_est_pub.publish(Float32(data=self.theta))
+            # self.dist_est_pub.publish(Float32(data=self.d))
 
 
     def calc_measurement_error(self, msg):
@@ -108,7 +108,7 @@ class LandmarkEstimator(Node):
         cam_to_cyl_xy = pos_cylinder[:2] - cam_pos_global[:2]
         robot_xvec = rotation_matrix[:2, 0]
 
-        dist = np.linalg.norm(cam_to_cyl_xy)
+        dist = np.linalg.norm(cam_to_cyl_xy) - 0.1
         error_d = abs(dist - self.d)
 
         # bearing = np.arccos(np.dot(robot_xvec, cam_to_cyl_xy)/(np.linalg.norm(robot_xvec)*dist))
@@ -121,8 +121,12 @@ class LandmarkEstimator(Node):
         bearing_gt = np.arctan2(cross, dot)
         # self.log.info(f"bearing_gt: {bearing_gt}, self.theta: {self.theta}")
         if self.pub_bearing_flag:
+            # publish all at the same rate so that we can collect into rosbag
+            self.bearing_est_pub.publish(Float32(data=self.theta))
+            self.dist_est_pub.publish(Float32(data=self.d))
             self.bearing_error_pub.publish(Float32(data=abs(bearing_gt - self.theta)))
             self.dist_error_pub.publish(Float32(data=error_d))
+            
 
 
 
