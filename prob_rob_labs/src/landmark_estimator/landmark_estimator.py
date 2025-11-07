@@ -19,6 +19,9 @@ class LandmarkEstimator(Node):
         self.landmark_height_pixels = -1
         self.d = -1
         self.theta = 0
+        self.p = [1.0, 0.0, 0.0,
+                  0.0, 1.0, 0.0,
+                  0.0, 0.0, 1.0]
 
         self.declare_parameter('cylinder_height', 0.5)
         self.declare_parameter('cylinder_radius', 0.1)
@@ -29,7 +32,7 @@ class LandmarkEstimator(Node):
         self.pub_bearing_flag = False
 
         self.corner_sub = self.create_subscription(Point2DArrayStamped, topic_name, self.estimate_landmark_height_pos, 10) #time stamp for every 0.006s
-        self.camera_sub = self.create_subscription(CameraInfo, '/camera/camera_info', self.estimate_dist_bearing, 10) #time stamp for every 0.006s
+        self.camera_sub = self.create_subscription(CameraInfo, '/camera/camera_info', self.camera_info_callback, 10) #time stamp for every 0.006s
         self.robot_pose_sub = self.create_subscription(PoseStamped, '/tb3/ground_truth/pose', self.calc_measurement_error, 10)
 
         self.bearing_est_pub = self.create_publisher(Float32, '/bearing_dist/bearing', 10)
@@ -58,7 +61,7 @@ class LandmarkEstimator(Node):
             pixel_height = max_y - min_y
             image_ratio = pixel_height / pixel_width
             actual_ratio = self.get_parameter('cylinder_height').value / (self.get_parameter('cylinder_radius').value*2)
-            if abs(image_ratio - actual_ratio) > 0.2:
+            if abs(image_ratio - actual_ratio) > 0.16:
                 self.pub_bearing_flag = False
                 return
 
@@ -66,24 +69,24 @@ class LandmarkEstimator(Node):
             self.landmark_pixel_axis = (max_x + min_x)/2
             self.landmark_height_pixels = pixel_height
 
-    def estimate_dist_bearing(self, msg):
+            self.estimate_dist_bearing()
+
+    def camera_info_callback(self, msg):
+        self.p = msg.k
+
+    def estimate_dist_bearing(self):
         if self.pub_bearing_flag:
-            p = msg.k
-            fx = p[0]
-            cx = p[2]
-            fy = p[4]
-            cy = p[5]
+            fx = self.p[0]
+            cx = self.p[2]
+            fy = self.p[4]
+            cy = self.p[5]
             self.theta = np.arctan2(cx - self.landmark_pixel_axis, fx)
             h = self.get_parameter('cylinder_height').value
             self.d = h * fy / (self.landmark_height_pixels * np.cos(self.theta))
 
-            msg = Float32()
-            msg.data = self.theta
-            self.bearing_est_pub.publish(msg)
+            self.bearing_est_pub.publish(Float32(data=self.theta))
+            self.dist_est_pub.publish(Float32(data=self.d))
 
-            msg = Float32()
-            msg.data = self.d
-            self.dist_est_pub.publish(msg)
 
     def calc_measurement_error(self, msg):
         pos_cylinder = np.array([0,0,0.25])
@@ -117,15 +120,10 @@ class LandmarkEstimator(Node):
         cross = np.cross(robot_xvec, cam_to_cyl_xy)
         bearing_gt = np.arctan2(cross, dot)
         # self.log.info(f"bearing_gt: {bearing_gt}, self.theta: {self.theta}")
+        if self.pub_bearing_flag:
+            self.bearing_error_pub.publish(Float32(data=abs(bearing_gt - self.theta)))
+            self.dist_error_pub.publish(Float32(data=error_d))
 
-        error_theta = abs(bearing_gt - self.theta)
-        msg = Float32()
-        msg.data = error_theta
-        self.bearing_error_pub.publish(msg)
-
-        msg = Float32()
-        msg.data = error_d
-        self.dist_error_pub.publish(msg)
 
 
 
