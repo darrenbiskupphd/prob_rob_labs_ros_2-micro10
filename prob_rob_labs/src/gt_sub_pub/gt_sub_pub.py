@@ -40,6 +40,7 @@ class GtSubPub(Node):
             self.twist.twist = msg.twist[id]
 
             self.pub_gt()
+            
     def pub_gt(self):
         self.pub_ground_truth_pose.publish(self.pose)
         self.pub_ground_truth_twist.publish(self.twist)
