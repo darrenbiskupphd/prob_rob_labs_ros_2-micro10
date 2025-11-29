@@ -1,0 +1,31 @@
+landmarks:
+  cyan: 
+    id: 1
+    x: 0.0
+    y: 0.0
+    radius: 0.1
+    height: 0.5
+  red:
+    id: 2
+    x: 8.5
+    y: -5.0
+    radius: 0.1
+    height: 0.5
+  green:
+    id: 3
+    x: 8.5
+    y: 5.0
+    radius: 0.1
+    height: 0.5
+  yellow:
+    id: 4
+    x: -11.5
+    y: 5.0
+    radius: 0.1
+    height: 0.5
+  magenta:
+    id: 5
+    x: -11.5
+    y: -5.0
+    radius: 0.1
+    height: 0.5
