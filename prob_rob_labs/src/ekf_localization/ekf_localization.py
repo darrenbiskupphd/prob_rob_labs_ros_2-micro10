@@ -6,7 +6,8 @@ import yaml
 from prob_rob_msgs.msg import Point2DArrayStamped
 from sensor_msgs.msg import CameraInfo
 from std_msgs.msg import Float32
-from geometry_msgs.msg import PoseStamped
+from nav_msgs.msg import Odometry
+from geometry_msgs.msg import Pose
 from functools import partial
 
 
@@ -19,6 +20,10 @@ class EkfLocalization(Node):
         self.log = self.get_logger()
         self.timer = self.create_timer(heartbeat_period, self.heartbeat)
         
+        self.state = np.array([0,0,0]) # x,y,theta
+        self.state_cov = np.diag([0.1,0.1,0.1])
+        self.last_time = 0
+        self.last_vel = np.array([0,0])
         self.p = np.array([1.0, 0.0, 0.0,
                             0.0, 1.0, 0.0,
                             0.0, 0.0, 1.0])
@@ -35,7 +40,9 @@ class EkfLocalization(Node):
             sub = self.create_subscription(Point2DArrayStamped, topic_name, callback_with_color, 10)
             self.subscribers.append(sub)
 
+        self.odom_sub = self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
         self.camera_sub = self.create_subscription(CameraInfo, '/camera/camera_info', self.camera_info_callback, 10)
+        self.ekf_pose_pub = self.create_publisher(Pose, '/ekf_pose', 10)
 
     def estimate_landmark_bearing_dist(self, msg, landmark_color):
         landmark_info = self.landmarks['landmarks'][landmark_color]
@@ -74,9 +81,43 @@ class EkfLocalization(Node):
             ## now from lab 5, estimate distance and bearing variances
             bearing_variance = 0.0004488*d**2 - 0.0005*d - 0.0003
             dist_variance = 3.892*np.exp(-0.000169*d) - 3.884
-            self.get_logger().info(f"Landmark {landmark_color}: d={d:.2f}, theta={theta:.2f}")
 
+            ### now do prediction using last_v
+            ## and then innovation step
+            ## update last_time
             
+    def odom_callback(self,msg):
+        msg_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        dt = msg_time - self.last_time
+        if dt < 0: #sample arrived late
+            return
+        v = msg.twist.twist.linear.x
+        wz = msg.twist.twist.angular.z 
+        self.predict(v,wz,dt)
+        self.last_vel = np.array([v,wz])
+        self.last_time = msg_time
+    
+    def predict(self, v, wz, dt):
+        x,y,theta = self.state
+        G = np.eye(3)
+
+        if abs(wz) < 1e-4:
+            new_x = x + v*dt*np.cos(theta)
+            new_y = y + v*dt*np.sin(theta)
+            new_theta = theta
+            G[0,2] = -v*dt*np.sin(theta)
+            G[1,2] = v*dt*np.cos(theta)
+        else:
+            new_theta = theta + wz*dt
+            new_x = x - (v/wz)*np.sin(theta) + (v/wz)*np.sin(new_theta)
+            new_y = y + (v/wz)*np.cos(theta) - (v/wz)*np.cos(new_theta)
+            G[0,2] = -(v/wz)*np.cos(theta) + (v/wz)*np.cos(new_theta)
+            G[1,2] = -(v/wz)*np.sin(theta) + (v/wz)*np.sin(new_theta)
+
+        Rt = np.diag([0.1, 0.1, 0.1]) * dt
+        self.state = np.array([new_x, new_y, new_theta])
+        self.state_cov = G @ self.state_cov @ G.T + Rt
+        self.get_logger().info(f"predicted state: {self.state}")
 
     def camera_info_callback(self, msg):
         self.p = msg.k
