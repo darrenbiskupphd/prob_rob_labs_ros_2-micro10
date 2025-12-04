@@ -20,13 +20,13 @@ class EkfLocalization(Node):
         self.log = self.get_logger()
         self.timer = self.create_timer(heartbeat_period, self.heartbeat)
         
-        self.state = np.array([0,0,0]) # x,y,theta
+        self.state = np.array([-1.5,0,0]) # x,y,theta
         self.state_cov = np.diag([0.1,0.1,0.1])
-        self.last_time = 0
-        self.last_vel = np.array([0,0])
-        self.p = np.array([1.0, 0.0, 0.0,
-                            0.0, 1.0, 0.0,
-                            0.0, 0.0, 1.0])
+        self.last_time = None
+        self.last_twist = np.array([0,0])
+        self.last_S_twist = np.diag([0.1,0.1])
+
+        self.p = np.eye(3).flatten()
         self.declare_parameter('map_path', '')
         map_path = self.get_parameter('map_path').value
         self.landmarks = {}
@@ -38,6 +38,7 @@ class EkfLocalization(Node):
             topic_name = f'/vision_{color}/corners'
             callback_with_color = partial(self.estimate_landmark_bearing_dist, landmark_color=color)
             sub = self.create_subscription(Point2DArrayStamped, topic_name, callback_with_color, 10)
+            self.get_logger().info(f'Subscribed to {topic_name}')
             self.subscribers.append(sub)
 
         self.odom_sub = self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
@@ -45,12 +46,21 @@ class EkfLocalization(Node):
         self.ekf_pose_pub = self.create_publisher(Pose, '/ekf_pose', 10)
 
     def estimate_landmark_bearing_dist(self, msg, landmark_color):
+        msg_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        if self.last_time is None:
+            self.last_time = msg_time
+            return
+        
+        dt = msg_time - self.last_time
+        if dt < 0:
+            return
+
         landmark_info = self.landmarks['landmarks'][landmark_color]
         height = landmark_info['height']
         radius = landmark_info['radius']
 
         ### copied in from lab 5
-        if len(msg.points) >= 5:
+        if len(msg.points) >= 4:
             min_x = 100000000.0
             min_y = 100000000.0
             max_x = 0.0
@@ -76,48 +86,94 @@ class EkfLocalization(Node):
             fy = self.p[4]
             cy = self.p[5]
             theta = np.arctan2(cx - landmark_pixel_axis, fx)
-            d = height * fy / (landmark_height_pixels * np.cos(theta))
+            d = height * fy / (landmark_height_pixels * np.cos(theta)) + radius
 
             ## now from lab 5, estimate distance and bearing variances
             bearing_variance = 0.0004488*d**2 - 0.0005*d - 0.0003
             dist_variance = 3.892*np.exp(-0.000169*d) - 3.884
+            Q_t = np.diag([dist_variance, bearing_variance])
 
-            ### now do prediction using last_v
+            ### now do prediction using last_twist and last_S_twist 
+            self.predict(*self.last_twist, self.last_S_twist, dt)
             ## and then innovation step
-            ## update last_time
+            CAMERA_OFFSET_X = 0.076 # the \camera_joint_rgb frame is located at [0.076, 0, 0.09301] m in the robot base frame
+            cx = self.state[0] + CAMERA_OFFSET_X * np.cos(self.state[2])
+            cy = self.state[1] + CAMERA_OFFSET_X * np.sin(self.state[2])
+            mx = landmark_info['x']
+            my = landmark_info['y']
+            q = (mx - cx)**2 + (my - cy)**2
+
+            z_hat = np.array([np.sqrt(q), np.arctan2(my - cy, mx - cx) - self.state[2]])
+            H = np.array([[-(mx - cx)/np.sqrt(q), -(my - cy)/np.sqrt(q), 0.0],
+                          [(my - cy)/q, -(mx - cx)/q, -1.0],])
+            S = H @ self.state_cov @ H.T + Q_t
+            K = self.state_cov @ H.T @ np.linalg.pinv(S)
+            z = np.array([d, theta])
+
+            self.state = self.state + K @ (z - z_hat)
+            # un-apply camera offset
+            self.state[0] = self.state[0] - CAMERA_OFFSET_X * np.cos(self.state[2])
+            self.state[1] = self.state[1] - CAMERA_OFFSET_X * np.sin(self.state[2])
+            # adjust covariance for camera offset
+            J_inv = np.array([
+                [1, 0,  CAMERA_OFFSET_X * np.sin(self.state[2])],
+                [0, 1, -CAMERA_OFFSET_X * np.cos(self.state[2])],
+                [0, 0,  1]
+            ])
+            self.state_cov = (np.eye(3) - K @ H) @ self.state_cov
+            self.state_cov = J_inv @ self.state_cov @ J_inv.T
+
+            #only update last time if successful measurement update
+            self.last_time = msg_time
+
+            self.get_logger().info(f'covariance: {self.state_cov[0,0]:.4f}, {self.state_cov[1,1]:.4f}, {self.state_cov[2,2]:.4f}')
             
-    def odom_callback(self,msg):
+    def odom_callback(self, msg):
         msg_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
-        dt = msg_time - self.last_time
-        if dt < 0: #sample arrived late
-            return
-        v = msg.twist.twist.linear.x
-        wz = msg.twist.twist.angular.z 
-        self.predict(v,wz,dt)
-        self.last_vel = np.array([v,wz])
-        self.last_time = msg_time
-    
-    def predict(self, v, wz, dt):
-        x,y,theta = self.state
+        v, wz = msg.twist.twist.linear.x, msg.twist.twist.angular.z
+        S = np.diag([msg.twist.covariance[0], msg.twist.covariance[35]])
+
+        if self.last_time is not None:
+            dt = msg_time - self.last_time
+            if dt > 0:
+                self.predict(v, wz, S, dt)
+
+        self.last_time, self.last_twist, self.last_S_twist = (msg_time, np.array([v, wz]), S)
+        
+    def predict(self, v, wz, S_twist, dt):
+        x, y, theta = self.state
         G = np.eye(3)
+        Vt = np.zeros((3, 2))
 
         if abs(wz) < 1e-4:
-            new_x = x + v*dt*np.cos(theta)
-            new_y = y + v*dt*np.sin(theta)
+            new_x = x + v * dt * np.cos(theta)
+            new_y = y + v * dt * np.sin(theta)
             new_theta = theta
-            G[0,2] = -v*dt*np.sin(theta)
-            G[1,2] = v*dt*np.cos(theta)
-        else:
-            new_theta = theta + wz*dt
-            new_x = x - (v/wz)*np.sin(theta) + (v/wz)*np.sin(new_theta)
-            new_y = y + (v/wz)*np.cos(theta) - (v/wz)*np.cos(new_theta)
-            G[0,2] = -(v/wz)*np.cos(theta) + (v/wz)*np.cos(new_theta)
-            G[1,2] = -(v/wz)*np.sin(theta) + (v/wz)*np.sin(new_theta)
+            
+            G[0, 2] = -v * dt * np.sin(theta)
+            G[1, 2] =  v * dt * np.cos(theta)
 
-        Rt = np.diag([0.1, 0.1, 0.1]) * dt
+            Vt[0, 0] = dt * np.cos(theta)  # dx/dv
+            Vt[1, 0] = dt * np.sin(theta)  # dy/dv
+            Vt[2, 1] = dt        
+        else:
+            new_theta = theta + wz * dt
+            new_x = x - v / wz * np.sin(theta) + v / wz * np.sin(new_theta)
+            new_y = y + v / wz * np.cos(theta) - v / wz * np.cos(new_theta)
+
+            G[0, 2] = -v / wz * np.cos(theta) + v / wz * np.cos(new_theta)
+            G[1, 2] = -v / wz * np.sin(theta) + v / wz * np.sin(new_theta)
+
+            Vt[0, 0] = (-np.sin(theta) + np.sin(new_theta)) / wz
+            Vt[1, 0] = ( np.cos(theta) - np.cos(new_theta)) / wz
+            Vt[2, 0] = 0
+            Vt[0, 1] = (v * dt * np.cos(new_theta) / wz) - (v * (np.sin(new_theta) - np.sin(theta)) / (wz**2))
+            Vt[1, 1] = (v * dt * np.sin(new_theta) / wz) - (v * (np.cos(theta) - np.cos(new_theta)) / (wz**2))
+            Vt[2, 1] = dt
+
         self.state = np.array([new_x, new_y, new_theta])
-        self.state_cov = G @ self.state_cov @ G.T + Rt
-        self.get_logger().info(f"predicted state: {self.state}")
+        self.state_cov = G @ self.state_cov @ G.T + Vt @ S_twist @ Vt.T
+
 
     def camera_info_callback(self, msg):
         self.p = msg.k
