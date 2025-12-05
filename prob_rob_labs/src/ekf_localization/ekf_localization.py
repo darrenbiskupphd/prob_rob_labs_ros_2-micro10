@@ -27,7 +27,7 @@ class EkfLocalization(Node):
         self.last_S_twist = np.diag([0.1,0.1])
 
         self.p = np.eye(3).flatten()
-        self.alphas = np.array([0.01, 0.01, 0.01, 0.01])*1000 # parameters for twist covariance
+        self.alphas = np.array([0.01, 0.01, 0.01, 0.01])*200 # parameters for twist covariance
         self.declare_parameter('map_path', '')
         map_path = self.get_parameter('map_path').value
         self.landmarks = {}
@@ -196,6 +196,7 @@ class EkfLocalization(Node):
 
     def publish_pose(self):
         msg = PoseStamped()
+        msg.header.frame_id = "odom"
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.pose.position.x = self.state[0]
         msg.pose.position.y = self.state[1]

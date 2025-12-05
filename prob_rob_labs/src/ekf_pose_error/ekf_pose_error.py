@@ -35,9 +35,9 @@ class EkfPoseError(Node):
     
     #this will also pub to /ekf_error topic
     def calculate_error(self):
-        error_x = self.gt_pose.position.x - self.ekf_pose.position.x
-        error_y = self.gt_pose.position.y - self.ekf_pose.position.y
-        error_theta = self.theta_from_quat(self.gt_pose.orientation) - self.theta_from_quat(self.ekf_pose.orientation)
+        error_x = self.gt_pose.pose.position.x - self.ekf_pose.pose.position.x
+        error_y = self.gt_pose.pose.position.y - self.ekf_pose.pose.position.y
+        error_theta = self.theta_from_quat(self.gt_pose.pose.orientation) - self.theta_from_quat(self.ekf_pose.pose.orientation)
 
         msg = Vector3()
         msg.x = error_x
