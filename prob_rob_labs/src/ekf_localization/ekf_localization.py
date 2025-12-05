@@ -27,6 +27,7 @@ class EkfLocalization(Node):
         self.last_S_twist = np.diag([0.1,0.1])
 
         self.p = np.eye(3).flatten()
+        self.alphas = [0.1, 0.01, 0.01, 0.1] # parameters for twist covariance
         self.declare_parameter('map_path', '')
         map_path = self.get_parameter('map_path').value
         self.landmarks = {}
@@ -36,7 +37,7 @@ class EkfLocalization(Node):
         self.subscribers = []
         for color, data in self.landmarks['landmarks'].items():
             topic_name = f'/vision_{color}/corners'
-            callback_with_color = partial(self.estimate_landmark_bearing_dist, landmark_color=color)
+            callback_with_color = partial(self.update_on_landmark, landmark_color=color)
             sub = self.create_subscription(Point2DArrayStamped, topic_name, callback_with_color, 10)
             self.get_logger().info(f'Subscribed to {topic_name}')
             self.subscribers.append(sub)
@@ -45,7 +46,7 @@ class EkfLocalization(Node):
         self.camera_sub = self.create_subscription(CameraInfo, '/camera/camera_info', self.camera_info_callback, 10)
         self.ekf_pose_pub = self.create_publisher(Pose, '/ekf_pose', 10)
 
-    def estimate_landmark_bearing_dist(self, msg, landmark_color):
+    def update_on_landmark(self, msg, landmark_color):
         msg_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         if self.last_time is None:
             self.last_time = msg_time
@@ -124,21 +125,23 @@ class EkfLocalization(Node):
             self.state_cov = J_inv @ self.state_cov @ J_inv.T
 
             #only update last time if successful measurement update
+            self.publish_pose()
             self.last_time = msg_time
-
-            self.get_logger().info(f'covariance: {self.state_cov[0,0]:.4f}, {self.state_cov[1,1]:.4f}, {self.state_cov[2,2]:.4f}')
             
     def odom_callback(self, msg):
         msg_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         v, wz = msg.twist.twist.linear.x, msg.twist.twist.angular.z
-        S = np.diag([msg.twist.covariance[0], msg.twist.covariance[35]])
-
+        # this didnt work, just gives hardcoded vals
+        # S = np.diag([msg.twist.covariance[0], msg.twist.covariance[35]])
+        # instead we use the book's way of characterizing twist covariance
+        S = np.diag([self.alphas[0]*v**2 + self.alphas[1]*wz**2, self.alphas[2]*v**2 + self.alphas[3]*wz**2])
         if self.last_time is not None:
             dt = msg_time - self.last_time
             if dt > 0:
                 self.predict(v, wz, S, dt)
 
         self.last_time, self.last_twist, self.last_S_twist = (msg_time, np.array([v, wz]), S)
+        self.publish_pose()
         
     def predict(self, v, wz, S_twist, dt):
         x, y, theta = self.state
@@ -174,6 +177,13 @@ class EkfLocalization(Node):
         self.state = np.array([new_x, new_y, new_theta])
         self.state_cov = G @ self.state_cov @ G.T + Vt @ S_twist @ Vt.T
 
+    def publish_pose(self):
+        msg = Pose()
+        msg.position.x = self.state[0]
+        msg.position.y = self.state[1]
+        msg.orientation.w = np.cos(self.state[2]*0.5)
+        msg.orientation.z = np.sin(self.state[2]*0.5)
+        self.ekf_pose_pub.publish(msg)
 
     def camera_info_callback(self, msg):
         self.p = msg.k
