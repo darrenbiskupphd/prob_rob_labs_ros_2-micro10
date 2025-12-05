@@ -7,7 +7,7 @@ from prob_rob_msgs.msg import Point2DArrayStamped
 from sensor_msgs.msg import CameraInfo
 from std_msgs.msg import Float32
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import PoseStamped
 from functools import partial
 
 
@@ -27,7 +27,7 @@ class EkfLocalization(Node):
         self.last_S_twist = np.diag([0.1,0.1])
 
         self.p = np.eye(3).flatten()
-        self.alphas = [0.1, 0.01, 0.01, 0.1] # parameters for twist covariance
+        self.alphas = np.array([0.01, 0.01, 0.01, 0.01]) # parameters for twist covariance
         self.declare_parameter('map_path', '')
         map_path = self.get_parameter('map_path').value
         self.landmarks = {}
@@ -44,7 +44,7 @@ class EkfLocalization(Node):
 
         self.odom_sub = self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
         self.camera_sub = self.create_subscription(CameraInfo, '/camera/camera_info', self.camera_info_callback, 10)
-        self.ekf_pose_pub = self.create_publisher(Pose, '/ekf_pose', 10)
+        self.ekf_pose_pub = self.create_publisher(PoseStamped, '/ekf_pose', 10)
 
     def update_on_landmark(self, msg, landmark_color):
         msg_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
@@ -92,7 +92,7 @@ class EkfLocalization(Node):
             ## now from lab 5, estimate distance and bearing variances
             bearing_variance = 0.0004488*d**2 - 0.0005*d - 0.0003
             dist_variance = 3.892*np.exp(-0.000169*d) - 3.884
-            Q_t = np.diag([dist_variance, bearing_variance])
+            Q_t = np.diag([dist_variance, bearing_variance]) * 1000
 
             ### now do prediction using last_twist and last_S_twist 
             self.predict(*self.last_twist, self.last_S_twist, dt)
@@ -178,11 +178,12 @@ class EkfLocalization(Node):
         self.state_cov = G @ self.state_cov @ G.T + Vt @ S_twist @ Vt.T
 
     def publish_pose(self):
-        msg = Pose()
-        msg.position.x = self.state[0]
-        msg.position.y = self.state[1]
-        msg.orientation.w = np.cos(self.state[2]*0.5)
-        msg.orientation.z = np.sin(self.state[2]*0.5)
+        msg = PoseStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.pose.position.x = self.state[0]
+        msg.pose.position.y = self.state[1]
+        msg.pose.orientation.w = np.cos(self.state[2]*0.5)
+        msg.pose.orientation.z = np.sin(self.state[2]*0.5)
         self.ekf_pose_pub.publish(msg)
 
     def camera_info_callback(self, msg):

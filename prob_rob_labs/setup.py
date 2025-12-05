@@ -33,6 +33,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'ekf_pose_error = ekf_pose_error.ekf_pose_error:main',
             'ekf_localization = ekf_localization.ekf_localization:main',
             'landmark_estimator = landmark_estimator.landmark_estimator:main',
             'odom_error = odom_error.odom_error:main',
