@@ -7,7 +7,7 @@ from prob_rob_msgs.msg import Point2DArrayStamped
 from sensor_msgs.msg import CameraInfo
 from std_msgs.msg import Float32
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped
 from functools import partial
 
 
@@ -44,7 +44,7 @@ class EkfLocalization(Node):
 
         self.odom_sub = self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
         self.camera_sub = self.create_subscription(CameraInfo, '/camera/camera_info', self.camera_info_callback, 10)
-        self.ekf_pose_pub = self.create_publisher(PoseStamped, '/ekf_pose', 10)
+        self.ekf_pose_pub = self.create_publisher(PoseWithCovarianceStamped, '/ekf_pose', 10)
 
     def unwrap_angle(self, angle):
         while angle > np.pi:
@@ -195,13 +195,32 @@ class EkfLocalization(Node):
         self.state_cov = G @ self.state_cov @ G.T + Vt @ S_twist @ Vt.T
 
     def publish_pose(self):
-        msg = PoseStamped()
+        msg = PoseWithCovarianceStamped()
         msg.header.frame_id = "odom"
         msg.header.stamp = self.get_clock().now().to_msg()
-        msg.pose.position.x = self.state[0]
-        msg.pose.position.y = self.state[1]
-        msg.pose.orientation.w = np.cos(self.state[2]*0.5)
-        msg.pose.orientation.z = np.sin(self.state[2]*0.5)
+        msg.pose.pose.position.x = self.state[0]
+        msg.pose.pose.position.y = self.state[1]
+        msg.pose.pose.orientation.w = np.cos(self.state[2]*0.5)
+        msg.pose.pose.orientation.z = np.sin(self.state[2]*0.5)
+
+        cov = np.zeros((6, 6))
+        # x
+        cov[0, 0] = self.state_cov[0, 0] 
+        cov[0, 1] = self.state_cov[0, 1] 
+        cov[0, 5] = self.state_cov[0, 2] 
+        
+        # y
+        cov[1, 0] = self.state_cov[1, 0] 
+        cov[1, 1] = self.state_cov[1, 1] 
+        cov[1, 5] = self.state_cov[1, 2] 
+        
+        # theta
+        cov[5, 0] = self.state_cov[2, 0] 
+        cov[5, 1] = self.state_cov[2, 1] 
+        cov[5, 5] = self.state_cov[2, 2] 
+        
+        msg.pose.covariance = cov.flatten().tolist()
+        
         self.ekf_pose_pub.publish(msg)
 
     def camera_info_callback(self, msg):

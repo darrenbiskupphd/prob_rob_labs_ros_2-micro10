@@ -2,6 +2,7 @@ import rclpy
 import numpy as np
 from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped
 from geometry_msgs.msg import Vector3
 
 
@@ -14,7 +15,7 @@ class EkfPoseError(Node):
         self.log = self.get_logger()
         self.timer = self.create_timer(heartbeat_period, self.heartbeat)
         self.gt_sub = self.create_subscription(PoseStamped, '/tb3/ground_truth/pose', self.gt_callback, 10)
-        self.ekf_sub = self.create_subscription(PoseStamped, '/ekf_pose', self.ekf_pose_callback, 10)
+        self.ekf_sub = self.create_subscription(PoseWithCovarianceStamped, '/ekf_pose', self.ekf_pose_callback, 10)
         self.gt_pose = None
         self.ekf_pose = None
 
@@ -35,9 +36,9 @@ class EkfPoseError(Node):
     
     #this will also pub to /ekf_error topic
     def calculate_error(self):
-        error_x = self.gt_pose.pose.position.x - self.ekf_pose.pose.position.x
-        error_y = self.gt_pose.pose.position.y - self.ekf_pose.pose.position.y
-        error_theta = self.theta_from_quat(self.gt_pose.pose.orientation) - self.theta_from_quat(self.ekf_pose.pose.orientation)
+        error_x = self.gt_pose.pose.position.x - self.ekf_pose.pose.pose.position.x
+        error_y = self.gt_pose.pose.position.y - self.ekf_pose.pose.pose.position.y
+        error_theta = self.theta_from_quat(self.gt_pose.pose.orientation) - self.theta_from_quat(self.ekf_pose.pose.pose.orientation)
 
         msg = Vector3()
         msg.x = error_x
