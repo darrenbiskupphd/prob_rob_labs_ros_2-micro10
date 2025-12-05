@@ -46,6 +46,13 @@ class EkfLocalization(Node):
         self.camera_sub = self.create_subscription(CameraInfo, '/camera/camera_info', self.camera_info_callback, 10)
         self.ekf_pose_pub = self.create_publisher(PoseStamped, '/ekf_pose', 10)
 
+    def unwrap_angle(self, angle):
+        while angle > np.pi:
+            angle -= 2.0 * np.pi
+        while angle < -np.pi:
+            angle += 2.0 * np.pi
+        return angle
+
     def update_on_landmark(self, msg, landmark_color):
         msg_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         if self.last_time is None:
@@ -83,46 +90,60 @@ class EkfLocalization(Node):
             landmark_height_pixels = pixel_height
             
             fx = self.p[0]
-            cx = self.p[2]
+            cx_opt = self.p[2] # [FIX] renamed to cx_opt to not clash with robot cx
             fy = self.p[4]
-            cy = self.p[5]
-            theta = np.arctan2(cx - landmark_pixel_axis, fx)
-            d = height * fy / (landmark_height_pixels * np.cos(theta)) + radius
+            cy_opt = self.p[5]
+            theta_meas = np.arctan2(cx_opt - landmark_pixel_axis, fx) # [FIX] Renamed to theta_meas
+            d = height * fy / (landmark_height_pixels * np.cos(theta_meas)) + radius
 
             ## now from lab 5, estimate distance and bearing variances
             bearing_variance = 0.0004488*d**2 - 0.0005*d - 0.0003
             dist_variance = 3.892*np.exp(-0.000169*d) - 3.884
-            Q_t = np.diag([dist_variance, bearing_variance]) * 1000
+            # [FIX] I removed the * 1000 here. If your curves are in meters, 
+            # *1000 makes the filter ignore measurements. Put it back only if you are sure.
+            Q_t = np.diag([dist_variance, bearing_variance]) 
 
             ### now do prediction using last_twist and last_S_twist 
             self.predict(*self.last_twist, self.last_S_twist, dt)
+
             ## and then innovation step
             CAMERA_OFFSET_X = 0.076 # the \camera_joint_rgb frame is located at [0.076, 0, 0.09301] m in the robot base frame
-            cx = self.state[0] + CAMERA_OFFSET_X * np.cos(self.state[2])
-            cy = self.state[1] + CAMERA_OFFSET_X * np.sin(self.state[2])
+            rx, ry, rtheta = self.state # robot state
+            cx = rx + CAMERA_OFFSET_X * np.cos(rtheta)
+            cy = ry + CAMERA_OFFSET_X * np.sin(rtheta)
+            
             mx = landmark_info['x']
             my = landmark_info['y']
-            q = (mx - cx)**2 + (my - cy)**2
+            
+            dx = mx - cx
+            dy = my - cy
+            q = dx**2 + dy**2
+            
+            # Predicted measurement (z_hat)
+            z_hat = np.array([np.sqrt(q), self.unwrap_angle(np.arctan2(dy, dx) - rtheta)])
+            
+            dcx = -CAMERA_OFFSET_X * np.sin(rtheta)
+            dcy =  CAMERA_OFFSET_X * np.cos(rtheta)
 
-            z_hat = np.array([np.sqrt(q), np.arctan2(my - cy, mx - cx) - self.state[2]])
-            H = np.array([[-(mx - cx)/np.sqrt(q), -(my - cy)/np.sqrt(q), 0.0],
-                          [(my - cy)/q, -(mx - cx)/q, -1.0],])
+            # Jacobian H (Directly transcribed)
+            # Row 0: Range (Chain rule applied to 3rd column)
+            # Row 1: Bearing (Chain rule applied to 3rd column)
+            H = np.array([
+                [-dx/np.sqrt(q), -dy/np.sqrt(q), (-dx*dcx - dy*dcy)/np.sqrt(q)      ],
+                [ dy/q,      -dx/q,      ( dy*dcx - dx*dcy)/q - 1.0     ]
+            ])
+
             S = H @ self.state_cov @ H.T + Q_t
             K = self.state_cov @ H.T @ np.linalg.pinv(S)
-            z = np.array([d, theta])
+            z = np.array([d, theta_meas])
 
-            self.state = self.state + K @ (z - z_hat)
-            # un-apply camera offset
-            self.state[0] = self.state[0] - CAMERA_OFFSET_X * np.cos(self.state[2])
-            self.state[1] = self.state[1] - CAMERA_OFFSET_X * np.sin(self.state[2])
-            # adjust covariance for camera offset
-            J_inv = np.array([
-                [1, 0,  CAMERA_OFFSET_X * np.sin(self.state[2])],
-                [0, 1, -CAMERA_OFFSET_X * np.cos(self.state[2])],
-                [0, 0,  1]
-            ])
+            innovation = z - z_hat
+            innovation[1] = self.unwrap_angle(innovation[1])
+
+            self.state = self.state + K @ innovation
+            self.state[2] = self.unwrap_angle(self.state[2]) # Keep state normalized
+            
             self.state_cov = (np.eye(3) - K @ H) @ self.state_cov
-            self.state_cov = J_inv @ self.state_cov @ J_inv.T
 
             #only update last time if successful measurement update
             self.publish_pose()
@@ -148,7 +169,7 @@ class EkfLocalization(Node):
         G = np.eye(3)
         Vt = np.zeros((3, 2))
 
-        if abs(wz) < 1e-4:
+        if abs(wz) < 1e-3:
             new_x = x + v * dt * np.cos(theta)
             new_y = y + v * dt * np.sin(theta)
             new_theta = theta
