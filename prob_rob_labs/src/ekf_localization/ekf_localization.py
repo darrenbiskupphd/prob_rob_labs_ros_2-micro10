@@ -27,7 +27,7 @@ class EkfLocalization(Node):
         self.last_S_twist = np.diag([0.1,0.1])
 
         self.p = np.eye(3).flatten()
-        self.alphas = np.array([0.01, 0.01, 0.01, 0.01]) # parameters for twist covariance
+        self.alphas = np.array([0.01, 0.01, 0.01, 0.01])*1000 # parameters for twist covariance
         self.declare_parameter('map_path', '')
         map_path = self.get_parameter('map_path').value
         self.landmarks = {}
@@ -90,7 +90,7 @@ class EkfLocalization(Node):
             landmark_height_pixels = pixel_height
             
             fx = self.p[0]
-            cx_opt = self.p[2] # [FIX] renamed to cx_opt to not clash with robot cx
+            cx_opt = self.p[2]
             fy = self.p[4]
             cy_opt = self.p[5]
             theta_meas = np.arctan2(cx_opt - landmark_pixel_axis, fx) # [FIX] Renamed to theta_meas
@@ -99,8 +99,6 @@ class EkfLocalization(Node):
             ## now from lab 5, estimate distance and bearing variances
             bearing_variance = 0.0004488*d**2 - 0.0005*d - 0.0003
             dist_variance = 3.892*np.exp(-0.000169*d) - 3.884
-            # [FIX] I removed the * 1000 here. If your curves are in meters, 
-            # *1000 makes the filter ignore measurements. Put it back only if you are sure.
             Q_t = np.diag([dist_variance, bearing_variance]) 
 
             ### now do prediction using last_twist and last_S_twist 
@@ -126,8 +124,6 @@ class EkfLocalization(Node):
             dcy =  CAMERA_OFFSET_X * np.cos(rtheta)
 
             # Jacobian H (Directly transcribed)
-            # Row 0: Range (Chain rule applied to 3rd column)
-            # Row 1: Bearing (Chain rule applied to 3rd column)
             H = np.array([
                 [-dx/np.sqrt(q), -dy/np.sqrt(q), (-dx*dcx - dy*dcy)/np.sqrt(q)      ],
                 [ dy/q,      -dx/q,      ( dy*dcx - dx*dcy)/q - 1.0     ]
