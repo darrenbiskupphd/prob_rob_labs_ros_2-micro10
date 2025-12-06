@@ -196,7 +196,7 @@ class EkfLocalization(Node):
 
     def publish_pose(self):
         msg = PoseWithCovarianceStamped()
-        msg.header.frame_id = "odom"
+        msg.header.frame_id = "map"
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.pose.pose.position.x = self.state[0]
         msg.pose.pose.position.y = self.state[1]
