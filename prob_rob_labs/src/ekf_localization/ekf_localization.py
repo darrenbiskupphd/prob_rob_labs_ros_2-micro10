@@ -158,7 +158,7 @@ class EkfLocalization(Node):
                 self.predict(v, wz, S, dt)
 
         self.last_time, self.last_twist, self.last_S_twist = (msg_time, np.array([v, wz]), S)
-        self.publish_pose()
+        # self.publish_pose()
         
     def predict(self, v, wz, S_twist, dt):
         x, y, theta = self.state
